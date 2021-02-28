@@ -1,0 +1,20 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: 192.168.0.99:5000/alpine
+    tag: 3.13.2
+
+inputs:
+  - name: ftp.server
+  - name: ((project-root))
+
+outputs:
+  - name: ((project-root))
+
+run:
+  path: sh
+  args: ["-c", "ls ../*ftp.server/*-((source))-*.tar.gz | xargs -n1 tar -xzf"]
+  dir: ((project-root))

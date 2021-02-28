@@ -1,0 +1,165 @@
+---
+# --------------------------------------------------
+resource-git: &resource-git
+  type: git
+  icon: git
+
+credentials-git: &credentials-git
+  username: ((git-username))
+  password: ((git-password))
+
+check-every-2m: &check-every-2m
+  check_every: 2m
+
+insecure-registries: &insecure-registries
+  insecure_registries: [ "192.168.0.99:5000" ]
+
+# --------------------------------------------------
+resources:
+
+  # Git repositories
+  - name: logger-factory.git
+    <<: *resource-git
+    source:
+      branch: master
+      uri: https://github.com/najbartomasz/logger-factory.git
+    <<: *check-every-2m
+
+  - name: pipeline.git
+    <<: *resource-git
+    source:
+      branch: master
+      uri: https://github.com/najbartomasz/pipeline.git
+    <<: *check-every-2m
+
+  # Semvers
+  - name: version.semver
+    type: semver
+    source:
+      driver: git
+      uri: https://github.com/najbartomasz/logger-factory.git
+      branch: version
+      file: version
+      <<: *credentials-git
+    <<: *check-every-2m
+
+  # Other
+  - name: ftp.server
+    type: ftp
+    icon: file-cabinet
+    source:
+      uri: ftp://((ftp-username)):((ftp-password))@192.168.0.98:21/home/data/
+      regex: (?P<file>logger-factory-.*-(?P<version>[0-9\.]+).*\.tar.gz)
+    <<: *check-every-2m
+
+# --------------------------------------------------
+resource_types:
+
+  - name: ftp
+    type: docker-image
+    source:
+      repository: 192.168.0.99:5000/ftp-resource
+      tag: 1.0.0
+      <<: *insecure-registries
+
+# --------------------------------------------------
+task-file-npm: &task-file-npm
+  file: pipeline.git/common/tasks/npm.yml
+
+task-file-compress: &task-file-compress
+  file: pipeline.git/common/tasks/compress.yml
+
+task-file-extract: &task-file-extract
+  file: pipeline.git/common/tasks/extract.yml
+
+var-project-root: &var-project-root
+  project-root: logger-factory.git
+
+vars-node-modules: &vars-node-modules
+  <<: *var-project-root
+  source: node_modules
+
+task-compress-node-modules: &task-compress-node-modules
+  task: compress-node-modules
+  <<: *task-file-compress
+  vars:
+    <<: *vars-node-modules
+    prefix: logger-factory
+
+task-extract-node-modules: &task-extract-node-modules
+  task: extract-node-modules
+  <<: *task-file-extract
+  vars:
+    <<: *vars-node-modules
+    prefix: logger-factory
+
+task-npm-ci: &task-npm-ci
+  task: npm-ci
+  <<: *task-file-npm
+  vars:
+    <<: *var-project-root
+    command: ci
+
+task-npm-run-eslint: &task-npm-run-eslint
+  task: npm-run-eslint
+  <<: *task-file-npm
+  vars:
+    <<: *var-project-root
+    command: run eslint
+
+task-npm-run-test: &task-npm-run-test
+  task: npm-run-test
+  <<: *task-file-npm
+  vars:
+    <<: *var-project-root
+    command: run test
+
+# --------------------------------------------------
+jobs:
+
+  - name: npm-ci
+    plan:
+      - in_parallel:
+          - get: logger-factory.git
+            trigger: true
+          - get: pipeline.git
+          - get: version.semver
+            params:
+              bump: patch
+      - put: version.semver
+        params:
+          file: version.semver/version
+      - <<: *task-npm-ci
+      - <<: *task-compress-node-modules
+    on_success:
+      put: ftp.server
+      params:
+        file: logger-factory.git/logger-factory-node_modules-*.tar.gz
+
+  - name: eslint
+    plan:
+      - get: logger-factory.git
+        passed: ["npm-ci"]
+      - get: pipeline.git
+        passed: ["npm-ci"]
+      - get: ftp.server
+        params:
+          regex: (?P<file>logger-factory-node_modules-(?P<version>[0-9\.]+).*\.tar.gz)
+        passed: ["npm-ci"]
+        trigger: true
+      - <<: *task-extract-node-modules
+      - <<: *task-npm-run-eslint
+
+  - name: test
+    plan:
+      - get: logger-factory.git
+        passed: ["npm-ci"]
+      - get: pipeline.git
+        passed: ["npm-ci"]
+      - get: ftp.server
+        params:
+          regex: (?P<file>logger-factory-node_modules-(?P<version>[0-9\.]+).*\.tar.gz)
+        passed: ["npm-ci"]
+        trigger: true
+      - <<: *task-extract-node-modules
+      - <<: *task-npm-run-test

@@ -1,0 +1,19 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: 192.168.0.99:5000/node
+    tag: 15.10.0-alpine
+
+inputs:
+  - name: ((project-root))
+
+outputs:
+  - name: ((project-root))
+
+run:
+  path: sh
+  args: ["-c", "npm ((command))"]
+  dir: ((project-root))

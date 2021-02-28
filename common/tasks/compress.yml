@@ -1,0 +1,20 @@
+---
+platform: linux
+
+image_resource:
+  type: registry-image
+  source:
+    repository: 192.168.0.99:5000/alpine
+    tag: 3.13.2
+
+inputs:
+  - name: version.semver
+  - name: ((project-root))
+
+outputs:
+  - name: ((project-root))
+
+run:
+  path: sh
+  args: ["-c", "tar -czf ((prefix))-((source))-`cat ../version.semver/version`.tar.gz ((source))"]
+  dir: ((project-root))
